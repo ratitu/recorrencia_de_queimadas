@@ -74,11 +74,34 @@ def _full_map_html(m, extra_js=""):
     return html
 
 
+def _build_points_geojson(df):
+    features = []
+    for _, row in df.iterrows():
+        lat, lon = row.get("latitude"), row.get("longitude")
+        if pd.isna(lat) or pd.isna(lon):
+            continue
+        frp = row.get("frp")
+        popup = (
+            f"<b>{row.get('NM_MUN', row.get('municipio',''))}</b><br>"
+            f"<b>Data:</b> {str(row.get('data_pas',''))[:10]}<br>"
+            f"<b>Satelite:</b> {row.get('satelite','')}<br>"
+            f"<b>Bioma:</b> {row.get('bioma','')}<br>"
+            f"<b>FRP:</b> {f'{frp:.1f}' if pd.notna(frp) else 'N/A'}<br>"
+            f"<b>Ano:</b> {row.get('ano','')}"
+        )
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [float(lon), float(lat)]},
+            "properties": {"popup": popup},
+        })
+    return features
+
+
 def make_fires_map(df, anos=None, municipios=None, tile="CartoDB dark_matter"):
     filtered = _filter(df, anos, municipios)
     m = folium.Map(location=RMC_CENTER, zoom_start=DEFAULT_ZOOM, tiles=tile, control_scale=True)
 
-    # --- Choropleth as raw Leaflet JS (avoids Folium GeoJson NaN bug) ---
+    # --- Choropleth, points, labels as raw Leaflet JS ---
     geojson = _sanitize_geojson(load_geojson())
     freq = filtered.groupby("NM_MUN").size().reset_index(name="total_focos")
     all_muns = [f["properties"]["NM_MUN"] for f in geojson["features"]]
@@ -87,83 +110,8 @@ def make_fires_map(df, anos=None, municipios=None, tile="CartoDB dark_matter"):
     freq_dict = dict(zip(freq_full["NM_MUN"], freq_full["total_focos"]))
     max_fc = max(freq_full["total_focos"].max(), 1)
 
-    # Write GeoJSON + freq data as JS variables, inject into map
-    geojson_id = f"gj_{uuid.uuid4().hex[:8]}"
-    data_json = json.dumps(geojson, default=str)
-    freq_json = json.dumps(freq_dict)
-
-    js_code = f"""
-    <script>
-    (function() {{
-        var geojsonData = {data_json};
-        var freqData = {freq_json};
-        var maxFc = {max_fc};
-
-        function getColor(count) {{
-            var t = count / maxFc;
-            var r = Math.round(255 * t + 255 * (1-t));
-            var g = Math.round(200 * (1-t) + 100 * t);
-            var b = Math.round(220 * (1-t) + 0 * t);
-            return 'rgb(' + r + ',' + g + ',' + b + ')';
-        }}
-
-        var choropleth = L.geoJSON(geojsonData, {{
-            style: function(feature) {{
-                var name = feature.properties.NM_MUN;
-                var count = freqData[name] || 0;
-                return {{
-                    fillColor: getColor(count),
-                    weight: 1,
-                    opacity: 0.7,
-                    color: '#555',
-                    fillOpacity: count > 0 ? 0.45 : 0.1
-                }};
-            }},
-            onEachFeature: function(feature, layer) {{
-                var name = feature.properties.NM_MUN;
-                var count = freqData[name] || 0;
-                layer.bindTooltip('<b>' + name + '</b><br>Focos: ' + count);
-            }}
-        }}).addTo(window._folium_map_{m._id});
-    }})();
-    </script>
-    """
-
-    # --- Heatmap layer ---
-    heat_data = filtered[["latitude", "longitude"]].dropna().values.tolist()
-    if heat_data:
-        plugins.HeatMap(
-            heat_data, name="Heatmap",
-            min_opacity=0.3, max_zoom=15, radius=12, blur=10,
-            gradient={0.2: "blue", 0.4: "lime", 0.6: "yellow", 0.8: "orange", 1: "red"},
-        ).add_to(m)
-
-    # --- Clustered markers ---
-    cluster = plugins.MarkerCluster(name="Focos (agrupados)", show=False)
-    for _, row in filtered.iterrows():
-        lat, lon = row.get("latitude"), row.get("longitude")
-        if pd.isna(lat) or pd.isna(lon):
-            continue
-        frp = row.get("frp")
-        frp_str = f"{frp:.1f}" if pd.notna(frp) else "N/A"
-        date_str = str(row.get("data_pas", ""))[:10]
-        popup_html = f"""
-        <div style="font-family:sans-serif;font-size:12px;min-width:180px">
-            <b>{row.get('NM_MUN', row.get('municipio',''))}</b><br>
-            <b>Data:</b> {date_str}<br>
-            <b>Satelite:</b> {row.get('satelite','')}<br>
-            <b>Bioma:</b> {row.get('bioma','')}<br>
-            <b>FRP:</b> {frp_str}<br>
-            <b>Ano:</b> {row.get('ano','')}
-        </div>"""
-        folium.CircleMarker(
-            [lat, lon], radius=4, color="#ff4b2b", fill=True,
-            fill_color="#ff4b2b", fill_opacity=0.7, weight=1,
-            popup=folium.Popup(popup_html, max_width=250),
-        ).add_to(cluster)
-    cluster.add_to(m)
-
-    # --- Municipality labels ---
+    points_features = _build_points_geojson(filtered)
+    label_data = []
     for feat in geojson["features"]:
         props = feat["properties"]
         name = props.get("NM_MUN", "")
@@ -174,13 +122,85 @@ def make_fires_map(df, anos=None, municipios=None, tile="CartoDB dark_matter"):
             continue
         cx = np.mean([c[0] for c in ring])
         cy = np.mean([c[1] for c in ring])
-        count = freq_dict.get(name, 0)
-        label = f"{name} ({count})"
-        folium.Marker(
-            [cy, cx],
-            icon=folium.DivIcon(html=f"""<div style="font-size:10px;font-weight:700;
-                color:white;text-shadow:1px 1px 2px black;white-space:nowrap;
-                transform:translate(-50%,-50%)">{label}</div>"""),
+        label_data.append({"name": name, "lat": cy, "lon": cx, "count": freq_dict.get(name, 0)})
+
+    data_json = json.dumps(geojson, default=str)
+    freq_json = json.dumps(freq_dict)
+    points_json = json.dumps(points_features, default=str)
+    labels_json = json.dumps(label_data)
+
+    js_code = f"""
+    <script>
+    (function() {{
+        var geojsonData = {data_json};
+        var freqData = {freq_json};
+        var pointsData = {points_json};
+        var labelsData = {labels_json};
+        var maxFc = {max_fc};
+        var map = window._folium_map_{m._id};
+
+        function getColor(count) {{
+            var t = count / maxFc;
+            var r = Math.round(255 * t + 255 * (1-t));
+            var g = Math.round(200 * (1-t) + 100 * t);
+            var b = Math.round(220 * (1-t) + 0 * t);
+            return 'rgb(' + r + ',' + g + ',' + b + ')';
+        }}
+
+        // Choropleth
+        L.geoJSON(geojsonData, {{
+            style: function(feature) {{
+                var name = feature.properties.NM_MUN;
+                var count = freqData[name] || 0;
+                return {{
+                    fillColor: getColor(count), weight: 1, opacity: 0.7,
+                    color: '#555', fillOpacity: count > 0 ? 0.45 : 0.1
+                }};
+            }},
+            onEachFeature: function(feature, layer) {{
+                var name = feature.properties.NM_MUN;
+                var count = freqData[name] || 0;
+                layer.bindTooltip('<b>' + name + '</b><br>Focos: ' + count);
+            }}
+        }}).addTo(map);
+
+        // Fire points as cluster
+        var markers = L.markerClusterGroup({{ showCoverageOnHover: false, maxClusterRadius: 50 }});
+        L.geoJSON(pointsData, {{
+            pointToLayer: function(feature, latlng) {{
+                return L.circleMarker(latlng, {{
+                    radius: 4, color: '#ff4b2b', fillColor: '#ff4b2b',
+                    fillOpacity: 0.7, weight: 1
+                }});
+            }},
+            onEachFeature: function(feature, layer) {{
+                if (feature.properties.popup) {{
+                    layer.bindPopup(feature.properties.popup);
+                }}
+            }}
+        }}).eachLayer(function(l) {{ markers.addLayer(l); }});
+        map.addLayer(markers);
+
+        // Municipality labels
+        for (var i = 0; i < labelsData.length; i++) {{
+            var lb = labelsData[i];
+            L.marker([lb.lat, lb.lon], {{
+                icon: L.divIcon({{
+                    className: '', html: '<div style="font-size:10px;font-weight:700;color:white;text-shadow:1px 1px 2px black;white-space:nowrap;transform:translate(-50%,-50%)">' + lb.name + ' (' + lb.count + ')</div>'
+                }})
+            }}).addTo(map);
+        }}
+    }})();
+    </script>
+    """
+
+    # --- Heatmap layer (Folium) ---
+    heat_data = filtered[["latitude", "longitude"]].dropna().values.tolist()
+    if heat_data:
+        plugins.HeatMap(
+            heat_data, name="Heatmap",
+            min_opacity=0.3, max_zoom=15, radius=12, blur=10,
+            gradient={0.2: "blue", 0.4: "lime", 0.6: "yellow", 0.8: "orange", 1: "red"},
         ).add_to(m)
 
     folium.LayerControl(collapsed=False).add_to(m)
