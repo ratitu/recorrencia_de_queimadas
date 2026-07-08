@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "queimadas-rmc"
+version = "2.0.0"
+description = "Interactive wildfire recurrence analysis for Campinas metropolitan region (RMC)"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Roger Godoy"}]
+
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "jinja2>=3.1",
+    "folium>=0.19",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "geopandas>=0.14",
+    "matplotlib>=3.7",
+    "shapely>=2.0",
+    "requests>=2.31",
+    "streamlit>=1.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.3",
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+queimadas-server = "app_fastapi:run"
+
+[tool.setuptools.packages.find]
+namespaces = false

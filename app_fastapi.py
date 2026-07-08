@@ -169,6 +169,9 @@ async def api_freq_ano():
     return freq.to_dict(orient="records")
 
 
-if __name__ == "__main__":
+def run():
     import uvicorn
-    uvicorn.run("app_fastapi:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app_fastapi:app", host="0.0.0.0", port=8000)
+
+if __name__ == "__main__":
+    run()
