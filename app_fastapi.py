@@ -13,7 +13,6 @@ import pandas as pd
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from interactive_maps import (
     make_fires_map, make_heatmap_only, make_year_animation, make_municipality_detail,
@@ -27,7 +26,6 @@ RESULTADOS = BASE / "resultados"
 STATIC_DIR = BASE / "static"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-templates = Jinja2Templates(directory=str(BASE / "templates"))
 
 # --- Load data at startup ----------------------------------------------------
 CSV_PATH = RESULTADOS / "todos_focos_rmc.csv"
@@ -81,12 +79,16 @@ async def index(request: Request):
         }
 
     mun_list = sorted(df_raw["NM_MUN"].unique().tolist()) if not df_raw.empty else []
+    mun_options = "\n".join(f'      <option value="{m}">{m}</option>' for m in mun_list)
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "stats": stats,
-        "municipios": mun_list,
-    })
+    html = (BASE / "templates" / "index.html").read_text()
+    html = html.replace("{{ stats.total }}", stats.get("total", "\u2014"))
+    html = html.replace("{{ stats.anos }}", stats.get("anos", "\u2014"))
+    html = html.replace("{{ stats.municipios }}", stats.get("municipios", "\u2014"))
+    html = html.replace("{{ stats.mes_critico }}", stats.get("mes_critico", "\u2014"))
+    html = html.replace("{% for m in municipios %}\n      <option value=\"{{ m }}\">{{ m }}</option>\n      {% endfor %}", mun_options)
+
+    return HTMLResponse(html)
 
 
 # --- Interactive map endpoints (return HTML fragments) -----------------------

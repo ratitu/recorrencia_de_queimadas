@@ -13,7 +13,6 @@ authors = [{name = "Roger Godoy"}]
 dependencies = [
     "fastapi[standard]>=0.110",
     "uvicorn[standard]>=0.29",
-    "jinja2>=3.1,<3.2",
     "folium>=0.19",
     "pandas>=2.0",
     "numpy>=1.24",
