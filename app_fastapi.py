@@ -24,7 +24,9 @@ app = FastAPI(title="Queimadas RMC", version="2.0.0")
 BASE = Path(__file__).resolve().parent
 RESULTADOS = BASE / "resultados"
 
-app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
+STATIC_DIR = BASE / "static"
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(BASE / "templates"))
 
 # --- Load data at startup ----------------------------------------------------
