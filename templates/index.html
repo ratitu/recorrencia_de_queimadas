@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Queimadas RMC — Mapas Interativos</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #242734;
+    --border: #2e3244; --text: #e4e6f0; --muted: #8b8fa3;
+    --accent: #ff4b2b; --accent2: #ff6f3c; --accent3: #ff9a56;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  a { color: var(--accent); text-decoration: none; }
+
+  .header { background: linear-gradient(135deg, #1a1d27 0%, #2a1a12 100%);
+            padding: 1.5rem 2rem 1rem; border-bottom: 1px solid var(--border); }
+  .header h1 { font-size: 1.6rem; font-weight: 700; }
+  .header h1 span { color: var(--accent); }
+  .header .sub { color: var(--muted); margin-top: .3rem; font-size: .9rem; }
+
+  .stats { display: flex; gap: 1rem; padding: 1rem 2rem; flex-wrap: wrap; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+               padding: .8rem 1.2rem; min-width: 140px; flex: 1; }
+  .stat-card .label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .stat-card .value { font-size: 1.4rem; font-weight: 700; color: var(--accent2); margin-top: .15rem; }
+
+  .tabs { display: flex; gap: 0; padding: 0 2rem; border-bottom: 1px solid var(--border); }
+  .tab-btn { background: none; border: none; color: var(--muted); padding: .8rem 1.4rem;
+             font-size: .9rem; cursor: pointer; border-bottom: 2px solid transparent; transition: .2s; }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent2); border-bottom-color: var(--accent2); font-weight: 600; }
+  .tab-content { display: none; padding: 0; }
+  .tab-content.active { display: block; }
+
+  /* Map controls */
+  .controls { display: flex; gap: .8rem; padding: 1rem 2rem; align-items: end; flex-wrap: wrap;
+              background: var(--surface); border-bottom: 1px solid var(--border); }
+  .control-group label { display: block; font-size: .75rem; color: var(--muted); margin-bottom: .25rem; }
+  .control-group input, .control-group select {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    padding: .45rem .7rem; border-radius: 6px; font-size: .85rem;
+  }
+  .control-group input:focus, .control-group select:focus { outline: none; border-color: var(--accent); }
+  .control-group select { min-width: 200px; }
+  button.action-btn { background: var(--accent); color: #fff; border: none; padding: .5rem 1.2rem;
+                      border-radius: 6px; font-size: .85rem; cursor: pointer; font-weight: 600; }
+  button.action-btn:hover { background: var(--accent2); }
+  button.action-btn.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  button.action-btn.secondary:hover { background: var(--border); }
+
+  .map-container { width: 100%; height: calc(100vh - 200px); min-height: 500px; }
+  .map-container iframe, .map-container > div { width: 100%; height: 100%; border: none; }
+
+  /* Data tab */
+  .data-section { padding: 1.5rem 2rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th { background: var(--surface2); text-align: left; padding: .5rem .7rem;
+       border-bottom: 2px solid var(--border); color: var(--muted); font-weight: 600;
+       position: sticky; top: 0; }
+  td { padding: .45rem .7rem; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: var(--surface2); }
+  .table-wrap { max-height: 400px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem; }
+  .chart-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+  .chart-box h3 { font-size: .9rem; margin-bottom: .7rem; }
+  canvas { width: 100% !important; }
+
+  .about { padding: 2rem; max-width: 720px; line-height: 1.7; }
+  .about h2 { color: var(--accent2); margin: 1.2rem 0 .4rem; }
+  .about ul { padding-left: 1.2rem; }
+  .about li { margin: .25rem 0; }
+
+  .footer { text-align: center; color: var(--muted); font-size: .75rem; padding: 1.5rem;
+            border-top: 1px solid var(--border); }
+
+  .loading { display: flex; align-items: center; justify-content: center; height: 100%;
+             color: var(--muted); font-size: 1rem; }
+  .spinner { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--accent);
+             border-radius: 50%; animation: spin .8s linear infinite; margin-right: .8rem; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 700px) {
+    .stats { flex-direction: column; }
+    .charts { grid-template-columns: 1fr; }
+    .controls { flex-direction: column; }
+    .tab-btn { padding: .6rem .7rem; font-size: .8rem; }
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>&#x1F525;</span> Queimadas RMC — Mapas Interativos</h1>
+  <div class="sub">Regiao Metropolitana de Campinas &middot; Dados INPE &middot; 1998–2025</div>
+</div>
+
+{% if stats %}
+<div class="stats">
+  <div class="stat-card"><div class="label">Total de focos</div><div class="value">{{ stats.total }}</div></div>
+  <div class="stat-card"><div class="label">Periodo</div><div class="value">{{ stats.anos }}</div></div>
+  <div class="stat-card"><div class="label">Municipios</div><div class="value">{{ stats.municipios }}</div></div>
+  <div class="stat-card"><div class="label">Mes mais critico</div><div class="value">{{ stats.mes_critico }}</div></div>
+</div>
+{% endif %}
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="showTab('map-main', this)">&#x1F5FA;&#xFE0F; Mapa Principal</button>
+  <button class="tab-btn" onclick="showTab('map-heat', this)">&#x1F321;&#xFE0F; Heatmap</button>
+  <button class="tab-btn" onclick="showTab('map-chloro', this)">&#x1F3D8;&#xFE0F; Coroepletico</button>
+  <button class="tab-btn" onclick="showTab('map-anim', this)">&#x23F1;&#xFE0F; Animacao</button>
+  <button class="tab-btn" onclick="showTab('data', this)">&#x1F4CB; Dados</button>
+  <button class="tab-btn" onclick="showTab('about', this)">&#x2139;&#xFE0F; Sobre</button>
+</div>
+
+<!-- Controls bar (visible only on map tabs) -->
+<div class="controls" id="controls-bar">
+  <div class="control-group">
+    <label>Ano minimo</label>
+    <input type="number" id="ano-min" min="1998" max="2025" value="1998">
+  </div>
+  <div class="control-group">
+    <label>Ano maximo</label>
+    <input type="number" id="ano-max" min="1998" max="2025" value="2025">
+  </div>
+  <div class="control-group" style="flex:2;">
+    <label>Municipios (separados por virgula)</label>
+    <select id="municipio-filter" multiple size="1">
+      {% for m in municipios %}
+      <option value="{{ m }}">{{ m }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button class="action-btn" onclick="reloadMap()">Aplicar Filtros</button>
+  <button class="action-btn secondary" onclick="resetFilters()">Limpar</button>
+</div>
+
+<!-- ==================== MAPAS INTERATIVOS ==================== -->
+
+<div id="tab-map-main" class="tab-content active">
+  <div class="map-container" id="map-main-container">
+    <div class="loading"><div class="spinner"></div>Carregando mapa...</div>
+  </div>
+</div>
+
+<div id="tab-map-heat" class="tab-content">
+  <div class="map-container" id="map-heat-container">
+    <div class="loading"><div class="spinner"></div>Carregando heatmap...</div>
+  </div>
+</div>
+
+<div id="tab-map-chloro" class="tab-content">
+  <div class="map-container" id="map-chloro-container">
+    <div class="loading"><div class="spinner"></div>Carregando coroepletico...</div>
+  </div>
+</div>
+
+<div id="tab-map-anim" class="tab-content">
+  <div class="map-container" id="map-anim-container">
+    <div class="loading"><div class="spinner"></div>Carregando animacao...</div>
+  </div>
+</div>
+
+<!-- ==================== DADOS ==================== -->
+
+<div id="tab-data" class="tab-content">
+  <div class="data-section">
+    <div id="data-count" style="color:var(--muted);margin-bottom:.8rem;font-size:.9rem;"></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Latitude</th><th>Longitude</th><th>Data</th><th>Satelite</th>
+          <th>Municipio</th><th>Bioma</th><th>FRP</th><th>Ano</th>
+        </tr></thead>
+        <tbody id="data-body"></tbody>
+      </table>
+    </div>
+    <div class="charts">
+      <div class="chart-box">
+        <h3>Focos por Municipio</h3>
+        <canvas id="chart-mun"></canvas>
+      </div>
+      <div class="chart-box">
+        <h3>Focos por Ano</h3>
+        <canvas id="chart-ano"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SOBRE ==================== -->
+
+<div id="tab-about" class="tab-content">
+  <div class="about">
+    <h2>Sobre esta analise</h2>
+    <p>Painel interativo com <strong>mapas Leaflet/Folium</strong> para explorar a
+       <strong>recorrencia de queimadas</strong> na <strong>Regiao Metropolitana de Campinas (RMC)</strong>.</p>
+
+    <h2>Mapas disponiveis</h2>
+    <ul>
+      <li><strong>Mapa Principal</strong> — Coroepletico por municipio + heatmap + markers agrupados (cluster)</li>
+      <li><strong>Heatmap</strong> — Mapa de calor dedicado com intensidade de focos</li>
+      <li><strong>Coroepletico</strong> — Click em cada municipio para ver estatisticas detalhadas</li>
+      <li><strong>Animacao</strong> — Timeline animada dos focos ao longo dos anos</li>
+    </ul>
+
+    <h2>Filtros</h2>
+    <p>Use os controles acima para filtrar por <strong>periodo</strong> e <strong>municipios</strong>.
+       Os filtros atualizam os mapas em tempo real.</p>
+
+    <h2>Fonte dos dados</h2>
+    <p><a href="https://queimadas.dgi.inpe.br/" target="_blank">INPE — Programa Queimadas</a>
+       — Focos de queimadas anuais via satelite (1998–2025).</p>
+
+    <h2>Municipios da RMC (20)</h2>
+    <ul>
+      <li>Campinas, Americana, Artur Nogueira, Cosmopolis, Engenheiro Coelho</li>
+      <li>Hortolandia, Holambra, Indaiatuba, Itatiba, Jaguariuna</li>
+      <li>Monte Mor, Nova Odessa, Paulinia, Pedreira, Santa Barbara d'Oeste</li>
+      <li>Santo Antonio de Posse, Sumare, Valinhos, Vinhedo, Morungaba</li>
+    </ul>
+  </div>
+</div>
+
+<div class="footer">
+  Gerado automaticamente &middot; Dados INPE &middot; Folium + FastAPI &middot; Analise de Recorrencia de Queimadas na RMC
+</div>
+
+<script>
+// --- State ---
+let currentTab = 'map-main';
+const loadedMaps = {};
+let chartMun = null, chartAno = null;
+
+// --- Tab switching ---
+function showTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+
+  const isMap = name.startsWith('map-');
+  document.getElementById('controls-bar').style.display = isMap ? 'flex' : 'none';
+  currentTab = name;
+
+  if (isMap && !loadedMaps[name]) loadMap(name);
+  if (name === 'data' && !window._dataLoaded) loadData();
+}
+
+// --- Build filter query string ---
+function filterQS() {
+  const min = document.getElementById('ano-min').value;
+  const max = document.getElementById('ano-max').value;
+  const sel = document.getElementById('municipio-filter');
+  const selected = Array.from(sel.selectedOptions).map(o => o.value);
+  let qs = [];
+  if (min) qs.push('ano_min=' + min);
+  if (max) qs.push('ano_max=' + max);
+  if (selected.length) qs.push('municipios=' + encodeURIComponent(selected.join(',')));
+  return qs.length ? '?' + qs.join('&') : '';
+}
+
+// --- Load map into container via iframe ---
+const _mapUrls = {};
+
+function loadMap(tabName) {
+  const mapId = tabName.replace('map-', 'map-') + '-container';
+  const container = document.getElementById(mapId);
+  if (!container) return;
+
+  const endpoints = {
+    'map-main': '/map/main',
+    'map-heat': '/map/heatmap',
+    'map-chloro': '/map/choropleth',
+    'map-anim': '/map/animation',
+  };
+
+  const url = (endpoints[tabName] || '/map/main') + filterQS();
+  container.innerHTML = '<div class="loading"><div class="spinner"></div>Carregando mapa...</div>';
+
+  fetch(url)
+    .then(r => r.text())
+    .then(html => {
+      // Revoke old blob URL if exists
+      if (_mapUrls[tabName]) URL.revokeObjectURL(_mapUrls[tabName]);
+      const blob = new Blob([html], { type: 'text/html' });
+      _mapUrls[tabName] = URL.createObjectURL(blob);
+      container.innerHTML = '<iframe src="' + _mapUrls[tabName] + '" style="width:100%;height:100%;border:none;"></iframe>';
+      loadedMaps[tabName] = true;
+    })
+    .catch(err => {
+      container.innerHTML = '<div class="loading" style="color:#ff4b2b">Erro ao carregar mapa</div>';
+      console.error(err);
+    });
+}
+
+function reloadMap() {
+  loadedMaps[currentTab] = false;
+  if (currentTab.startsWith('map-')) loadMap(currentTab);
+  if (currentTab === 'data') { window._dataLoaded = false; loadData(); }
+}
+
+function resetFilters() {
+  document.getElementById('ano-min').value = 1998;
+  document.getElementById('ano-max').value = 2025;
+  document.getElementById('municipio-filter').selectedIndex = -1;
+  reloadMap();
+}
+
+// --- Data tab ---
+async function loadData() {
+  const min = document.getElementById('ano-min').value;
+  const max = document.getElementById('ano-max').value;
+  let url = `/api/focos?ano_min=${min}&ano_max=${max}`;
+  const sel = document.getElementById('municipio-filter');
+  const selected = Array.from(sel.selectedOptions).map(o => o.value);
+  if (selected.length) url += `&municipio=${encodeURIComponent(selected[0])}`;
+
+  const res = await fetch(url);
+  const rows = await res.json();
+  window._dataLoaded = true;
+
+  document.getElementById('data-count').textContent = `${rows.length.toLocaleString()} registros encontrados`;
+
+  const tbody = document.getElementById('data-body');
+  tbody.innerHTML = '';
+  const show = rows.slice(0, 500);
+  show.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${(r.latitude||0).toFixed(4)}</td><td>${(r.longitude||0).toFixed(4)}</td>
+      <td>${r.data_pas ? r.data_pas.slice(0,10) : ''}</td><td>${r.satelite||''}</td>
+      <td>${r.NM_MUN||r.municipio||''}</td><td>${r.bioma||''}</td>
+      <td>${r.frp != null ? r.frp.toFixed(1) : ''}</td><td>${r.ano||''}</td>`;
+    tbody.appendChild(tr);
+  });
+  if (rows.length > 500) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="8" style="text-align:center;color:var(--muted)">
+      ... +${rows.length - 500} registros (mostrando 500 de ${rows.length.toLocaleString()})</td>`;
+    tbody.appendChild(tr);
+  }
+
+  // Charts
+  const freqMun = await (await fetch(`/api/freq_municipio?ano_min=${min}&ano_max=${max}`)).json();
+  const freqAno = await (await fetch('/api/freq_ano')).json();
+
+  if (chartMun) chartMun.destroy();
+  chartMun = new Chart(document.getElementById('chart-mun'), {
+    type: 'bar',
+    data: { labels: freqMun.map(d => d.NM_MUN), datasets: [{ label: 'Focos',
+      data: freqMun.map(d => d.total_focos),
+      backgroundColor: 'rgba(255,75,43,0.7)', borderColor: '#ff4b2b', borderWidth: 1 }] },
+    options: { indexAxis: 'y', responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { color: '#8b8fa3' }, grid: { color: '#2e3244' } },
+                y: { ticks: { color: '#e4e6f0', font: { size: 10 } }, grid: { display: false } } } }
+  });
+
+  if (chartAno) chartAno.destroy();
+  chartAno = new Chart(document.getElementById('chart-ano'), {
+    type: 'line',
+    data: { labels: freqAno.map(d => d.ano), datasets: [{ label: 'Focos',
+      data: freqAno.map(d => d.total_focos),
+      borderColor: '#ff4b2b', backgroundColor: 'rgba(255,75,43,0.15)', fill: true,
+      tension: 0.3, pointRadius: 3 }] },
+    options: { responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { color: '#8b8fa3' }, grid: { color: '#2e3244' } },
+                y: { ticks: { color: '#8b8fa3' }, grid: { color: '#2e3244' } } } }
+  });
+}
+
+// --- Init: load default map ---
+loadMap('map-main');
+</script>
+</body>
+</html>
