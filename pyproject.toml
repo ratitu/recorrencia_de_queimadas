@@ -36,3 +36,6 @@ queimadas-server = "app_fastapi:run"
 
 [tool.setuptools.packages.find]
 namespaces = false
+
+[tool.uv.extra-build-dependencies]
+queimadas-rmc = ["setuptools.backends"]
